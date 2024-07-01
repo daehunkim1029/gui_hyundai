@@ -3,32 +3,15 @@ import sys
 
 from script import YOLOWrapper, open_directory
 
-# Get the absolute path of the current script file
-script_path = os.path.abspath(__file__)
-
-# Get the root directory by going up one level from the script directory
-project_root = os.path.dirname(os.path.dirname(script_path))
-
-sys.path.insert(0, project_root)
-sys.path.insert(0, os.getcwd())  # Add the current directory as well
-
 from qtpy.QtWidgets import QMainWindow, QApplication, QWidget, QVBoxLayout, QPushButton, QLineEdit, QGroupBox, \
     QFormLayout, QComboBox, QCheckBox, QMessageBox, QLabel, QTableWidget, QSplitter, \
-    QTableWidgetItem
+    QTableWidgetItem, QFileDialog, QListWidget, QHBoxLayout
 from qtpy.QtCore import Qt, QCoreApplication
-from qtpy.QtGui import QFont
+from qtpy.QtGui import QFont, QPixmap
 
 from qtpy.QtCore import QThread, Signal
 
-# print(os.environ['QT_API'])
-
-# for testing pyside6
-# os.environ['QT_API'] = 'pyside6'
-
-# for testing pyqt6
 os.environ['QT_API'] = 'pyqt6'
-
-print(os.environ['QT_API'])
 
 QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
 QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)  # HighDPI support
@@ -66,6 +49,8 @@ class MainWindow(QMainWindow):
 
     def __initVal(self):
         self.__wrapper = YOLOWrapper()
+        self.__currentIndex = -1
+        self.__fileList = []
 
     def __initUi(self):
         self.setWindowTitle('PyQt Ultralytics YOLO GUI')
@@ -73,10 +58,11 @@ class MainWindow(QMainWindow):
         self.__btn = QPushButton('Run')
         self.__btn.clicked.connect(self.__run)
 
-        self.__pathLineEdit = QLineEdit()
-        self.__pathLineEdit.setPlaceholderText('Write the Full File Path (*.jpg, *.png, *.mp4)...')
-        self.__pathLineEdit.textChanged.connect(self.__pathChanged)
-        self.__pathLineEdit.returnPressed.connect(self.__btn.click)
+        self.__dirBtn = QPushButton('Select Directory')
+        self.__dirBtn.clicked.connect(self.__selectDirectory)
+
+        self.__fileListWidget = QListWidget()
+        self.__fileListWidget.itemSelectionChanged.connect(self.__fileSelectionChanged)
 
         self.__taskCmbBox = QComboBox()
         self.__taskCmbBox.addItems(['Object Detection', 'Semantic Segmentation', 'Object Tracking'])
@@ -99,8 +85,24 @@ class MainWindow(QMainWindow):
         settingsGrpBox.setTitle('Settings')
         settingsGrpBox.setLayout(lay)
 
+        self.__prevBtn = QPushButton('Previous')
+        self.__prevBtn.clicked.connect(self.__prevImage)
+        self.__nextBtn = QPushButton('Next')
+        self.__nextBtn.clicked.connect(self.__nextImage)
+
+        navLay = QHBoxLayout()
+        navLay.addWidget(self.__prevBtn)
+        navLay.addWidget(self.__nextBtn)
+
+        self.__imageLabel = QLabel()
+        self.__imageLabel.setAlignment(Qt.AlignCenter)
+        self.__imageLabel.setFixedSize(500, 500)
+
         lay = QVBoxLayout()
-        lay.addWidget(self.__pathLineEdit)
+        lay.addWidget(self.__dirBtn)
+        lay.addWidget(self.__fileListWidget)
+        lay.addLayout(navLay)
+        lay.addWidget(self.__imageLabel)
         lay.addWidget(self.__btn)
         lay.addWidget(settingsGrpBox)
         lay.setAlignment(Qt.AlignTop)
@@ -108,11 +110,16 @@ class MainWindow(QMainWindow):
         leftWidget = QWidget()
         leftWidget.setLayout(lay)
 
+        self.__resultImageLabel = QLabel()
+        self.__resultImageLabel.setAlignment(Qt.AlignCenter)
+        self.__resultImageLabel.setFixedSize(500, 500)
+
         self.__resultTableWidget = QTableWidget()
         self.__resultTableWidget.setEditTriggers(QTableWidget.NoEditTriggers)
 
         lay = QVBoxLayout()
         lay.addWidget(QLabel('Result'))
+        lay.addWidget(self.__resultImageLabel)
         lay.addWidget(self.__resultTableWidget)
 
         rightWidget = QWidget()
@@ -130,12 +137,57 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self.__btn.setEnabled(False)
+        self.__prevBtn.setEnabled(False)
+        self.__nextBtn.setEnabled(False)
 
-    def __pathChanged(self, text):
-        self.__btn.setEnabled(text.strip() != '')
+    def __selectDirectory(self):
+        dir_path = QFileDialog.getExistingDirectory(self, 'Select Directory')
+        if dir_path:
+            self.__fileListWidget.clear()
+            self.__fileList = [os.path.join(dir_path, file_name) for file_name in os.listdir(dir_path) if file_name.endswith(('.jpg', '.jpeg', '.png', '.mp4'))]
+            self.__fileListWidget.addItems(self.__fileList)
+            self.__currentIndex = 0
+            self.__updateNavigationButtons()
+            if self.__fileList:
+                self.__displayImage(self.__fileList[self.__currentIndex])
+                self.__btn.setEnabled(True)
+
+    def __fileSelectionChanged(self):
+        selected_items = self.__fileListWidget.selectedItems()
+        if selected_items:
+            self.__currentIndex = self.__fileList.index(selected_items[0].text())
+            self.__updateNavigationButtons()
+            self.__displayImage(self.__fileList[self.__currentIndex])
+
+    def __prevImage(self):
+        if self.__currentIndex > 0:
+            self.__currentIndex -= 1
+            self.__updateNavigationButtons()
+            self.__fileListWidget.setCurrentRow(self.__currentIndex)
+            self.__displayImage(self.__fileList[self.__currentIndex])
+
+    def __nextImage(self):
+        if self.__currentIndex < len(self.__fileList) - 1:
+            self.__currentIndex += 1
+            self.__updateNavigationButtons()
+            self.__fileListWidget.setCurrentRow(self.__currentIndex)
+            self.__displayImage(self.__fileList[self.__currentIndex])
+
+    def __updateNavigationButtons(self):
+        self.__prevBtn.setEnabled(self.__currentIndex > 0)
+        self.__nextBtn.setEnabled(self.__currentIndex < len(self.__fileList) - 1)
+
+    def __displayImage(self, path):
+        pixmap = QPixmap(path)
+        pixmap = pixmap.scaled(self.__imageLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.__imageLabel.setPixmap(pixmap)
 
     def __run(self):
-        src_pathname = self.__pathLineEdit.text()
+        if self.__currentIndex == -1:
+            QMessageBox.warning(self, 'Warning', 'No file selected')
+            return
+
+        src_pathname = self.__fileList[self.__currentIndex]
         cur_task = self.__taskCmbBox.currentIndex()
 
         is_boxes_checked = self.__boxesChkBox.isChecked()
@@ -180,15 +232,18 @@ class MainWindow(QMainWindow):
     def __generatedFinished(self, filename, result_dict):
         open_directory(os.path.dirname(filename))
         self.__initTable(result_dict)
+        self.__displayResultImage(filename)
 
+    def __displayResultImage(self, path):
+        pixmap = QPixmap(path)
+        pixmap = pixmap.scaled(self.__resultImageLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.__resultImageLabel.setPixmap(pixmap)
 
     def __finished(self):
         self.__toggleWidget(True)
 
 
 if __name__ == "__main__":
-    import sys
-
     app = QApplication(sys.argv)
     w = MainWindow()
     w.show()
