@@ -10,9 +10,10 @@ from mmseg.registry import MODELS
 from mmseg.utils import (ConfigType, OptConfigType, OptMultiConfig,
                          OptSampleList, SampleList, add_prefix)
 from .base import BaseSegmentor
+from mmseg.models.segmentors.base import BaseSegmentor
 from mmengine.structures import PixelData
 from mmseg.structures import SegDataSample
-from ..utils import resize
+from mmseg.models.utils import resize
 
 
 @MODELS.register_module()
